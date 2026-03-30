@@ -27,7 +27,7 @@ This gives you the workspace skeleton: launch files, setup scripts, and this REA
 ### Pull the ROS Docker image
 
 ```bash
-docker pull sprinkjm/rosempty:latest
+docker pull sprinkjm/rosempty
 ```
 
 ### Verify Docker works
@@ -35,7 +35,7 @@ docker pull sprinkjm/rosempty:latest
 Run the image and confirm you get a shell prompt:
 
 ```bash
-docker run --rm -it sprinkjm/rosempty:latest /bin/bash
+docker run --rm -it sprinkjm/rosempty /bin/bash
 ```
 
 You should see a root prompt like `root@<container_id>:/#`. Inside it, verify ROS is available:
