@@ -9,7 +9,7 @@ Recorded driving data from a real vehicle is replayed as a lead car, and one or 
 ## Step 1: Clone this repository
 
 ```bash
-git clone <this-repo-url> rossim
+git clone https://github.com/jmscslgroup/rossim rossim
 cd rossim
 ```
 
