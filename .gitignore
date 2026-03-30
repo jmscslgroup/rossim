@@ -1,0 +1,30 @@
+# Catkin build artifacts
+build/
+devel/
+logs/
+.catkin_workspace
+
+# ROS bag files (large binary recordings)
+*.bag
+
+# Compressed archives
+*.tgz
+
+# macOS
+.DS_Store
+
+# Editor / IDE
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+
+# ROS packages cloned into src/ have their own git repos.
+# They are set up via scripts/setup_profacc.sh (or manually).
+# Keep only the catkin toplevel CMakeLists.txt symlink.
+src/*/
