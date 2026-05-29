@@ -4,6 +4,23 @@ A ROS 1 (Noetic) catkin workspace for simulating Adaptive Cruise Control (ACC) i
 
 Recorded driving data from a real vehicle is replayed as a lead car, and one or more simulated ego vehicles follow it using an ACC controller -- all running as ROS nodes inside a Docker container.
 
+## Citation
+To cite the usage of this repository, use the following:
+
+Kate Sanborn, Daniel B. Work, Jonathan Sprinkle. "Single Vehicle to Traffic Scale: a Model-Based Workflow." in 2026 IEEE International Conference on Intelligent Transportation Systems (ITSC), (in press) 2026.
+
+or using bibtex:
+
+```
+@inproceedings{sanborn2026single,
+  author    = {Sanborn, Kate and Work, Daniel B. and Sprinkle, Jonathan},
+  title      = {Single Vehicle to Traffic Scale: A Model-Based Workflow},
+  booktitle  = {2026 IEEE International Conference on Intelligent Transportation Systems (ITSC)},
+  year       = {2026},
+  note       = {in press}
+}
+```
+
 ---
 
 ## Step 1: Clone this repository
