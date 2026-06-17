@@ -224,10 +224,20 @@ each other's topics -- they are fully isolated.
 
 ## Live Dashboard
 
-A small web dashboard shows the car's data (speed, commanded acceleration, lead
-distance, relative velocity, odometer) updating in real time in your browser. It
-runs as a ROS node and needs **no extra software** -- just `rospy` and the
-Python standard library (details in [`dashboard/README.md`](dashboard/README.md)).
+A small web dashboard shows the cars in the simulation updating in real time in
+your browser. It runs as a ROS node and needs **no extra software** -- just
+`rospy` and the Python standard library (details in
+[`dashboard/README.md`](dashboard/README.md)). It has two views:
+
+- **Overhead** -- an ego-centric top-down view of the selected car, the car
+  ahead, and any cars behind, placed by their odometry.
+- **Data** -- value tiles for the selected car (speed, commanded acceleration,
+  lead distance, relative velocity, odometer).
+
+The dashboard **discovers the cars** automatically (any namespace publishing
+`car/state/vel_x`), so `leadcar`, `egocar`, `egocar1`, ... all appear as
+buttons at the top -- click to **swap** which car you are watching. This works
+for a single car or a whole platoon.
 
 With a simulation running (`./scripts/run.sh`), start the dashboard from a second
 host terminal:

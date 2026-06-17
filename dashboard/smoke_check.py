@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Smoke-check the live dashboard.
+Smoke-check the multi-car live dashboard.
 
 Run this *inside the container* while the simulation and dashboard are running.
-It fetches /config, reads a few /stream (SSE) frames, and reports which tiles
-reached a live (non-null, non-stale) value. Exits 0 if the required tiles went
-live, 1 otherwise -- so it can gate an automated smoke test.
+It fetches /config, reads a few /stream (SSE) frames, reports the cars that were
+discovered and which of their tiles went live, and PASSES iff at least one ego
+car (one that commands acceleration) has its required tiles live.
 
     python3 dashboard/smoke_check.py [--url http://127.0.0.1:8888] [--seconds 8]
 """
@@ -16,32 +16,29 @@ import sys
 import time
 import urllib.request
 
-# Tiles that MUST go live for the test to pass (the rest are reported but not
-# required -- e.g. odometer may lag, rel_vel depends on both cars moving).
+# Tiles that must go live on an ego car for the test to pass.
 REQUIRED = ["speed", "cmd_accel", "lead_dist"]
 
 
-def get_config(url):
-    with urllib.request.urlopen(url + "/config", timeout=5) as r:
+def get_json(url):
+    with urllib.request.urlopen(url, timeout=5) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
 def read_stream(url, seconds):
-    """Read SSE 'data:' frames for `seconds`, returning the list of snapshots."""
     deadline = time.monotonic() + seconds
-    snapshots = []
-    req = urllib.request.Request(url + "/stream")
-    with urllib.request.urlopen(req, timeout=seconds + 5) as r:
+    frames = []
+    with urllib.request.urlopen(url + "/stream", timeout=seconds + 5) as r:
         for raw in r:
             line = raw.decode("utf-8", "replace").strip()
             if line.startswith("data:"):
                 try:
-                    snapshots.append(json.loads(line[5:].strip()))
+                    frames.append(json.loads(line[5:].strip()))
                 except json.JSONDecodeError:
                     pass
             if time.monotonic() > deadline:
                 break
-    return snapshots
+    return frames
 
 
 def main():
@@ -50,49 +47,48 @@ def main():
     ap.add_argument("--seconds", type=float, default=8.0)
     args = ap.parse_args()
 
-    cfg = get_config(args.url)
-    fields = cfg["fields"]
-    print("config: mode=%s namespace=%s, %d tiles"
-          % (cfg["mode"], cfg["namespace"], len(fields)))
+    cfg = get_json(args.url + "/config")
+    print("config: mode=%s, position_key=%s, %d field defs"
+          % (cfg["mode"], cfg["position_key"], len(cfg["fields"])))
 
-    snapshots = read_stream(args.url, args.seconds)
-    print("read %d stream frame(s) over ~%.0fs\n" % (len(snapshots), args.seconds))
+    frames = read_stream(args.url, args.seconds)
+    print("read %d stream frame(s) over ~%.0fs\n" % (len(frames), args.seconds))
 
-    # For each field, find the best (live) value seen across all frames.
-    went_live = {}
-    last_value = {}
-    for f in fields:
-        k = f["key"]
-        went_live[k] = False
-        last_value[k] = None
-        for snap in snapshots:
-            d = snap.get(k)
-            if not d:
-                continue
-            if d.get("value") is not None:
-                last_value[k] = d["value"]
-            if d.get("value") is not None and not d.get("stale", True):
-                went_live[k] = True
+    # Aggregate, per car: available fields, and which fields ever went live.
+    available = {}    # car -> set(keys)
+    went_live = {}    # car -> set(keys that were non-null and not stale)
+    for fr in frames:
+        for car, info in (fr.get("cars") or {}).items():
+            available.setdefault(car, set()).update(info.get("available", []))
+            live = went_live.setdefault(car, set())
+            for key, d in (info.get("fields") or {}).items():
+                if d.get("value") is not None and not d.get("stale", True):
+                    live.add(key)
 
-    print("%-12s %-10s %-8s %s" % ("tile", "topic", "live?", "last value"))
-    print("-" * 52)
-    ok = True
-    for f in fields:
-        k = f["key"]
-        live = went_live[k]
-        req = k in REQUIRED
-        mark = "LIVE" if live else ("MISS" if req else "--")
-        if req and not live:
-            ok = False
-        val = "n/a" if last_value[k] is None else ("%.3f" % last_value[k])
-        print("%-12s %-10s %-8s %s%s"
-              % (k, f["topic"], mark, val, "   (required)" if req else ""))
+    cars = sorted(available)
+    if not cars:
+        print("SMOKE TEST FAILED: no cars discovered.")
+        return 1
+
+    ego_ok = False
+    print("%-10s %-6s %-7s %s" % ("car", "role", "live", "live fields"))
+    print("-" * 60)
+    for car in cars:
+        is_ego = "cmd_accel" in available[car]
+        role = "ego" if is_ego else "lead"
+        live = went_live.get(car, set())
+        req_live = is_ego and all(k in live for k in REQUIRED)
+        if req_live:
+            ego_ok = True
+        mark = "OK" if (req_live or not is_ego) else "MISS"
+        print("%-10s %-6s %-7s %s" % (car, role, mark, ", ".join(sorted(live)) or "(none)"))
 
     print()
-    if ok:
-        print("SMOKE TEST PASSED: all required tiles went live.")
+    print("discovered %d car(s): %s" % (len(cars), ", ".join(cars)))
+    if ego_ok:
+        print("SMOKE TEST PASSED: an ego car has all required tiles live.")
         return 0
-    print("SMOKE TEST FAILED: a required tile never went live (check topic names).")
+    print("SMOKE TEST FAILED: no ego car had all of %s live." % ", ".join(REQUIRED))
     return 1
 
 

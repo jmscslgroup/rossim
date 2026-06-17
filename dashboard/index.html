@@ -7,20 +7,36 @@
 <style>
   :root {
     --bg:#0b0e14; --tile:#151a23; --tile2:#1b2230; --line:#222b38;
-    --fg:#e6edf3; --muted:#7d8590; --pos:#3fb950; --neg:#f85149;
+    --fg:#e6edf3; --muted:#7d8590; --accent:#58a6ff; --pos:#3fb950; --neg:#f85149;
+    --road:#1a2130; --lane:#3a475c;
   }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg);
          font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
   header { display:flex; align-items:center; justify-content:space-between;
-           padding:18px 24px; border-bottom:1px solid var(--line); }
+           padding:16px 24px; border-bottom:1px solid var(--line); flex-wrap:wrap; gap:10px; }
   header h1 { font-size:18px; font-weight:600; margin:0; letter-spacing:.3px; }
   .badges { display:flex; gap:10px; align-items:center; font-size:13px; color:var(--muted); }
   .badge { padding:3px 10px; border-radius:999px; background:var(--tile2); }
   .dot { width:9px; height:9px; border-radius:50%; background:var(--neg);
          display:inline-block; margin-right:6px; vertical-align:middle; }
   .dot.live { background:var(--pos); }
-  main { padding:24px; }
+
+  .bar { display:flex; align-items:center; justify-content:space-between;
+         padding:14px 24px; gap:14px; flex-wrap:wrap; }
+  .cars, .views { display:flex; gap:8px; flex-wrap:wrap; }
+  .chip { padding:7px 14px; border-radius:10px; background:var(--tile);
+          border:1px solid var(--line); color:var(--fg); font-size:14px; cursor:pointer;
+          font-weight:500; }
+  .chip:hover { border-color:#33415a; }
+  .chip.active { background:var(--accent); border-color:var(--accent); color:#08111f; }
+  .chip .role { font-size:11px; color:var(--muted); margin-left:6px; text-transform:uppercase; letter-spacing:.5px; }
+  .chip.active .role { color:#08111f; opacity:.7; }
+  .views .chip { font-size:13px; padding:6px 12px; }
+
+  main { padding:8px 24px 24px; }
+
+  /* tiles view */
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
           gap:18px; max-width:1100px; }
   .tile { background:var(--tile); border:1px solid var(--line); border-radius:14px;
@@ -33,6 +49,15 @@
   .tile.stale { opacity:.32; }
   .tile.pos .value { color:var(--pos); }
   .tile.neg .value { color:var(--neg); }
+
+  /* overhead view */
+  .overhead { background:var(--tile); border:1px solid var(--line); border-radius:14px;
+              padding:16px; max-width:1100px; }
+  .overhead svg { width:100%; height:auto; display:block; }
+  .readout { display:flex; gap:24px; margin-top:14px; flex-wrap:wrap; font-size:14px; }
+  .readout .item { color:var(--muted); }
+  .readout .item b { color:var(--fg); font-weight:600; }
+  .hidden { display:none; }
   footer { padding:14px 24px; color:var(--muted); font-size:12px; border-top:1px solid var(--line); }
 </style>
 </head>
@@ -40,16 +65,36 @@
 <header>
   <h1>rossim dashboard</h1>
   <div class="badges">
-    <span class="badge" id="ns">--</span>
     <span class="badge" id="mode">--</span>
     <span><span class="dot" id="dot"></span><span id="connText">connecting</span></span>
   </div>
 </header>
-<main><div class="grid" id="grid"></div></main>
-<footer>updated <span id="updated">--</span> &middot; <span id="livecount">0</span> live</footer>
+
+<div class="bar">
+  <div class="cars" id="cars"></div>
+  <div class="views" id="views">
+    <button class="chip" data-view="overhead">Overhead</button>
+    <button class="chip" data-view="tiles">Data</button>
+  </div>
+</div>
+
+<main>
+  <div class="overhead" id="overheadView">
+    <svg viewBox="0 0 1000 240" preserveAspectRatio="xMidYMid meet" id="svg"></svg>
+    <div class="readout" id="readout"></div>
+  </div>
+  <div class="grid hidden" id="tilesView"></div>
+</main>
+
+<footer><span id="carcount">0</span> cars &middot; updated <span id="updated">--</span></footer>
 
 <script>
-let FIELDS = [];
+const SVG_NS = "http://www.w3.org/2000/svg";
+let CONFIG = null;          // {mode, position_key, fields:[...]}
+let FIELD_BY_KEY = {};
+let selectedCar = null;
+let view = "overhead";
+let lastCarSet = "";        // to detect when the set of cars changes
 
 function fmt(v, field) {
   if (v === null || v === undefined) return "--";
@@ -58,23 +103,37 @@ function fmt(v, field) {
   return s;
 }
 
+// A car is an "ego" car (vs the replayed lead) if it commands acceleration.
+function isEgo(car) { return car.available && car.available.indexOf("cmd_accel") >= 0; }
+function roleOf(car) { return isEgo(car) ? "ego" : "lead"; }
+function posOf(car) {
+  const k = CONFIG.position_key;
+  const d = car.fields && car.fields[k];
+  return d && d.value !== null && d.value !== undefined ? Number(d.value) : null;
+}
+function speedOf(car) {
+  const d = car.fields && car.fields.speed;
+  return d && d.value !== null ? Number(d.value) : null;
+}
+
 async function init() {
-  const cfg = await (await fetch("/config")).json();
-  FIELDS = cfg.fields;
-  document.getElementById("ns").textContent = "● " + cfg.namespace;
-  document.getElementById("mode").textContent = cfg.mode;
-  const grid = document.getElementById("grid");
-  for (const f of FIELDS) {
-    const tile = document.createElement("div");
-    tile.className = "tile stale";
-    tile.id = "tile-" + f.key;
-    tile.innerHTML =
-      '<div class="label">' + f.label + '</div>' +
-      '<div><span class="value" id="val-' + f.key + '">--</span>' +
-      '<span class="unit">' + f.unit + '</span></div>';
-    grid.appendChild(tile);
+  CONFIG = await (await fetch("/config")).json();
+  for (const f of CONFIG.fields) FIELD_BY_KEY[f.key] = f;
+  document.getElementById("mode").textContent = CONFIG.mode;
+
+  for (const btn of document.querySelectorAll("#views .chip")) {
+    btn.addEventListener("click", () => setView(btn.dataset.view));
   }
+  setView(view);
   connect();
+}
+
+function setView(v) {
+  view = v;
+  for (const btn of document.querySelectorAll("#views .chip"))
+    btn.classList.toggle("active", btn.dataset.view === v);
+  document.getElementById("overheadView").classList.toggle("hidden", v !== "overhead");
+  document.getElementById("tilesView").classList.toggle("hidden", v !== "tiles");
 }
 
 function connect() {
@@ -83,26 +142,181 @@ function connect() {
   const connText = document.getElementById("connText");
   es.onopen = () => { dot.classList.add("live"); connText.textContent = "connected"; };
   es.onerror = () => { dot.classList.remove("live"); connText.textContent = "reconnecting"; };
-  es.onmessage = (e) => {
-    const data = JSON.parse(e.data);
-    let live = 0;
-    for (const f of FIELDS) {
-      const d = data[f.key];
-      if (!d) continue;
-      const tile = document.getElementById("tile-" + f.key);
-      const val = document.getElementById("val-" + f.key);
-      val.textContent = fmt(d.value, f);
-      const isStale = d.stale || d.value === null;
-      tile.classList.toggle("stale", isStale);
-      tile.classList.remove("pos", "neg");
-      if (f.signed && !isStale) {
-        tile.classList.add(Number(d.value) >= 0 ? "pos" : "neg");
-      }
-      if (!isStale) live++;
-    }
-    document.getElementById("livecount").textContent = live + "/" + FIELDS.length;
-    document.getElementById("updated").textContent = new Date().toLocaleTimeString();
-  };
+  es.onmessage = (e) => render(JSON.parse(e.data).cars || {});
+}
+
+function render(cars) {
+  const names = Object.keys(cars).sort();
+  document.getElementById("carcount").textContent = names.length;
+  document.getElementById("updated").textContent = new Date().toLocaleTimeString();
+
+  // Rebuild the car selector only when the set of cars changes.
+  const carSet = names.join(",");
+  if (carSet !== lastCarSet) {
+    lastCarSet = carSet;
+    rebuildCarChips(cars, names);
+  }
+  // Keep a valid selection: prefer an ego car, else the first car.
+  if (!selectedCar || names.indexOf(selectedCar) < 0) {
+    selectedCar = names.find(n => isEgo(cars[n])) || names[0] || null;
+    highlightSelected();
+  }
+
+  if (view === "tiles") renderTiles(cars);
+  else renderOverhead(cars, names);
+}
+
+function rebuildCarChips(cars, names) {
+  const box = document.getElementById("cars");
+  box.innerHTML = "";
+  for (const name of names) {
+    const btn = document.createElement("button");
+    btn.className = "chip";
+    btn.dataset.car = name;
+    btn.innerHTML = name + '<span class="role">' + roleOf(cars[name]) + "</span>";
+    btn.addEventListener("click", () => { selectedCar = name; highlightSelected(); });
+    box.appendChild(btn);
+  }
+  highlightSelected();
+}
+
+function highlightSelected() {
+  for (const btn of document.querySelectorAll("#cars .chip"))
+    btn.classList.toggle("active", btn.dataset.car === selectedCar);
+}
+
+function renderTiles(cars) {
+  const car = cars[selectedCar];
+  const grid = document.getElementById("tilesView");
+  grid.innerHTML = "";
+  if (!car) return;
+  for (const f of CONFIG.fields) {
+    if (car.available.indexOf(f.key) < 0) continue;
+    const d = car.fields[f.key] || {value: null, stale: true};
+    const isStale = d.stale || d.value === null;
+    const sign = (f.signed && !isStale) ? (Number(d.value) >= 0 ? " pos" : " neg") : "";
+    const tile = document.createElement("div");
+    tile.className = "tile" + (isStale ? " stale" : "") + sign;
+    tile.innerHTML =
+      '<div class="label">' + f.label + '</div>' +
+      '<div><span class="value">' + fmt(d.value, f) + '</span>' +
+      '<span class="unit">' + f.unit + '</span></div>';
+    grid.appendChild(tile);
+  }
+}
+
+// --- Overhead (ego-centric) view --------------------------------------------
+function renderOverhead(cars, names) {
+  const svg = document.getElementById("svg");
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const W = 1000, H = 240, cx = W / 2, roadY = H / 2;
+
+  const ego = cars[selectedCar];
+  const egoPos = ego ? posOf(ego) : null;
+  if (!ego || egoPos === null) {
+    addText(svg, cx, roadY, "waiting for position data...", "var(--muted)", 16, "middle");
+    document.getElementById("readout").innerHTML = "";
+    return;
+  }
+
+  // Cars that have a known position, with distance relative to ego (+ = ahead).
+  const placed = names
+    .map(n => ({ name: n, car: cars[n], pos: posOf(cars[n]) }))
+    .filter(c => c.pos !== null)
+    .map(c => ({ ...c, rel: c.pos - egoPos }));
+
+  // Auto-fit horizontal scale (px per metre) so neighbours are visible.
+  const maxAbs = Math.max(5, ...placed.map(c => Math.abs(c.rel)));
+  const scale = Math.min(30, Math.max(3, (W / 2 - 80) / maxAbs));
+
+  drawRoad(svg, W, H, roadY, egoPos, scale);
+
+  // Nearest neighbours for the readout / emphasis.
+  const ahead = placed.filter(c => c.rel > 0.001).sort((a, b) => a.rel - b.rel)[0] || null;
+  const behind = placed.filter(c => c.rel < -0.001).sort((a, b) => b.rel - a.rel)[0] || null;
+
+  for (const c of placed) {
+    const x = cx + c.rel * scale;
+    if (x < 24 || x > W - 24) continue;            // off-screen, skip
+    const isSel = c.name === selectedCar;
+    const isNeighbour = (ahead && c.name === ahead.name) || (behind && c.name === behind.name);
+    drawCar(svg, x, roadY, c, isSel, isNeighbour);
+  }
+
+  // Direction-of-travel hint.
+  addText(svg, W - 16, 26, "forward →", "var(--muted)", 13, "end");
+
+  renderReadout(ego, ahead, behind);
+}
+
+function drawRoad(svg, W, H, roadY, egoPos, scale) {
+  const rh = 70;
+  rect(svg, 0, roadY - rh / 2, W, rh, "var(--road)", null, 0);
+  line(svg, 0, roadY - rh / 2, W, roadY - rh / 2, "var(--line)", 1);
+  line(svg, 0, roadY + rh / 2, W, roadY + rh / 2, "var(--line)", 1);
+  // Dashed centre line that scrolls with ego position to convey motion.
+  const spacing = 60, dash = 30;
+  const offset = ((egoPos * scale) % spacing + spacing) % spacing;
+  for (let x = -offset; x < W; x += spacing) {
+    line(svg, x, roadY, x + dash, roadY, "var(--lane)", 3);
+  }
+}
+
+function drawCar(svg, x, y, c, isSel, isNeighbour) {
+  const w = 50, h = 26;
+  let fill = "#2a3447", stroke = "var(--line)";
+  if (isSel) { fill = "var(--accent)"; stroke = "var(--accent)"; }
+  else if (isNeighbour) { fill = "#2f6f4f"; stroke = "#3fb950"; }
+  rect(svg, x - w / 2, y - h / 2, w, h, fill, stroke, 6);
+
+  const nameColor = isSel ? "var(--accent)" : "var(--fg)";
+  addText(svg, x, y - h / 2 - 22, c.name, nameColor, 14, "middle", 600);
+  const sp = speedOf(c.car);
+  addText(svg, x, y - h / 2 - 7, sp === null ? "-- m/s" : sp.toFixed(1) + " m/s",
+          "var(--muted)", 12, "middle");
+  if (!isSel) {
+    const gap = (c.rel >= 0 ? "+" : "") + c.rel.toFixed(1) + " m";
+    addText(svg, x, y + h / 2 + 18, gap, "var(--muted)", 12, "middle");
+  }
+}
+
+function renderReadout(ego, ahead, behind) {
+  const items = [];
+  items.push(item("Ego", selectedCar + " (" + roleOf(ego) + ")"));
+  const sp = speedOf(ego);
+  items.push(item("Speed", sp === null ? "--" : sp.toFixed(2) + " m/s"));
+  items.push(item("Ahead", ahead ? ahead.name + " @ " + ahead.rel.toFixed(1) + " m" : "none"));
+  items.push(item("Behind", behind ? behind.name + " @ " + Math.abs(behind.rel).toFixed(1) + " m" : "none"));
+  document.getElementById("readout").innerHTML = items.join("");
+}
+function item(k, v) { return '<span class="item">' + k + ': <b>' + v + "</b></span>"; }
+
+// --- tiny SVG helpers --------------------------------------------------------
+function rect(svg, x, y, w, h, fill, stroke, r) {
+  const e = document.createElementNS(SVG_NS, "rect");
+  e.setAttribute("x", x); e.setAttribute("y", y);
+  e.setAttribute("width", w); e.setAttribute("height", h);
+  if (r) { e.setAttribute("rx", r); e.setAttribute("ry", r); }
+  e.setAttribute("fill", fill);
+  if (stroke) { e.setAttribute("stroke", stroke); e.setAttribute("stroke-width", 2); }
+  svg.appendChild(e);
+}
+function line(svg, x1, y1, x2, y2, stroke, w) {
+  const e = document.createElementNS(SVG_NS, "line");
+  e.setAttribute("x1", x1); e.setAttribute("y1", y1);
+  e.setAttribute("x2", x2); e.setAttribute("y2", y2);
+  e.setAttribute("stroke", stroke); e.setAttribute("stroke-width", w);
+  svg.appendChild(e);
+}
+function addText(svg, x, y, str, fill, size, anchor, weight) {
+  const e = document.createElementNS(SVG_NS, "text");
+  e.setAttribute("x", x); e.setAttribute("y", y);
+  e.setAttribute("fill", fill); e.setAttribute("font-size", size);
+  e.setAttribute("text-anchor", anchor || "start");
+  e.setAttribute("font-family", "-apple-system,Segoe UI,Roboto,sans-serif");
+  if (weight) e.setAttribute("font-weight", weight);
+  e.textContent = str;
+  svg.appendChild(e);
 }
 
 init();
