@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rossim dashboard</title>
+<style>
+  :root {
+    --bg:#0b0e14; --tile:#151a23; --tile2:#1b2230; --line:#222b38;
+    --fg:#e6edf3; --muted:#7d8590; --pos:#3fb950; --neg:#f85149;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  header { display:flex; align-items:center; justify-content:space-between;
+           padding:18px 24px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:18px; font-weight:600; margin:0; letter-spacing:.3px; }
+  .badges { display:flex; gap:10px; align-items:center; font-size:13px; color:var(--muted); }
+  .badge { padding:3px 10px; border-radius:999px; background:var(--tile2); }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--neg);
+         display:inline-block; margin-right:6px; vertical-align:middle; }
+  .dot.live { background:var(--pos); }
+  main { padding:24px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+          gap:18px; max-width:1100px; }
+  .tile { background:var(--tile); border:1px solid var(--line); border-radius:14px;
+          padding:18px 20px; min-height:124px; display:flex; flex-direction:column;
+          justify-content:space-between; transition:opacity .2s; }
+  .tile .label { font-size:13px; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); }
+  .tile .value { font-variant-numeric:tabular-nums; font-feature-settings:"tnum";
+                 font-size:46px; font-weight:600; line-height:1.1; margin-top:8px; }
+  .tile .unit { font-size:14px; color:var(--muted); margin-left:6px; font-weight:400; }
+  .tile.stale { opacity:.32; }
+  .tile.pos .value { color:var(--pos); }
+  .tile.neg .value { color:var(--neg); }
+  footer { padding:14px 24px; color:var(--muted); font-size:12px; border-top:1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>rossim dashboard</h1>
+  <div class="badges">
+    <span class="badge" id="ns">--</span>
+    <span class="badge" id="mode">--</span>
+    <span><span class="dot" id="dot"></span><span id="connText">connecting</span></span>
+  </div>
+</header>
+<main><div class="grid" id="grid"></div></main>
+<footer>updated <span id="updated">--</span> &middot; <span id="livecount">0</span> live</footer>
+
+<script>
+let FIELDS = [];
+
+function fmt(v, field) {
+  if (v === null || v === undefined) return "--";
+  let s = Number(v).toFixed(field.precision);
+  if (field.signed && Number(v) >= 0) s = "+" + s;
+  return s;
+}
+
+async function init() {
+  const cfg = await (await fetch("/config")).json();
+  FIELDS = cfg.fields;
+  document.getElementById("ns").textContent = "● " + cfg.namespace;
+  document.getElementById("mode").textContent = cfg.mode;
+  const grid = document.getElementById("grid");
+  for (const f of FIELDS) {
+    const tile = document.createElement("div");
+    tile.className = "tile stale";
+    tile.id = "tile-" + f.key;
+    tile.innerHTML =
+      '<div class="label">' + f.label + '</div>' +
+      '<div><span class="value" id="val-' + f.key + '">--</span>' +
+      '<span class="unit">' + f.unit + '</span></div>';
+    grid.appendChild(tile);
+  }
+  connect();
+}
+
+function connect() {
+  const es = new EventSource("/stream");
+  const dot = document.getElementById("dot");
+  const connText = document.getElementById("connText");
+  es.onopen = () => { dot.classList.add("live"); connText.textContent = "connected"; };
+  es.onerror = () => { dot.classList.remove("live"); connText.textContent = "reconnecting"; };
+  es.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    let live = 0;
+    for (const f of FIELDS) {
+      const d = data[f.key];
+      if (!d) continue;
+      const tile = document.getElementById("tile-" + f.key);
+      const val = document.getElementById("val-" + f.key);
+      val.textContent = fmt(d.value, f);
+      const isStale = d.stale || d.value === null;
+      tile.classList.toggle("stale", isStale);
+      tile.classList.remove("pos", "neg");
+      if (f.signed && !isStale) {
+        tile.classList.add(Number(d.value) >= 0 ? "pos" : "neg");
+      }
+      if (!isStale) live++;
+    }
+    document.getElementById("livecount").textContent = live + "/" + FIELDS.length;
+    document.getElementById("updated").textContent = new Date().toLocaleTimeString();
+  };
+}
+
+init();
+</script>
+</body>
+</html>
