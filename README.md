@@ -68,15 +68,21 @@ You should see `/rosout` and `/rosout_agg` listed. If so, ROS is working. Type `
 
 ## Step 3: Verify the workspace mount
 
-This step confirms that your host files are visible inside the container.
+This step confirms that your host files are visible inside the container. We use
+[Docker Compose](https://docs.docker.com/compose/) (included with Docker Desktop
+and modern Docker Engine) so you don't have to type long `docker run --mount ...`
+commands -- the image and mount are defined once in `compose.yaml`.
 
 From the `rossim/` directory on your host:
 
 ```bash
-docker run --rm --mount type=bind,source=$(pwd),target=/ros/catkin_ws -it sprinkjm/rosempty:latest ls /ros/catkin_ws
+docker compose run --rm ros ls
 ```
 
-You should see `README.md`, `scripts/`, `src/`, etc. -- the contents of your `rossim/` directory. If you see an empty listing or an error, double-check the path and that Docker has permission to access the directory.
+You should see `README.md`, `scripts/`, `src/`, etc. -- the contents of your
+`rossim/` directory, which is mounted at `/ros/catkin_ws` inside the container.
+If you see an empty listing or an error, double-check that you are in the
+`rossim/` directory and that Docker has permission to access it.
 
 ---
 
@@ -114,10 +120,10 @@ This file contains a recorded velocity trace from a real vehicle and is replayed
 
 ## Step 6: Build the workspace
 
-Launch the Docker container with the workspace mounted:
+Open an interactive shell in the container (the workspace is already mounted):
 
 ```bash
-docker run --mount type=bind,source=$(pwd),target=/ros/catkin_ws -it sprinkjm/rosempty:latest
+docker compose run --rm ros
 ```
 
 Inside the container, build:
@@ -144,8 +150,19 @@ source devel/setup.bash
 
 ## Step 7: Run the profacc simulation
 
+If you are already in the container shell from Step 6 (with the workspace
+sourced), launch directly:
+
 ```bash
 roslaunch profacc profaccDocker.launch
+```
+
+Or, from your host, use the one-command shortcut that builds, sources, and
+launches in a fresh container:
+
+```bash
+./scripts/run.sh                          # default: profaccDocker.launch
+./scripts/run.sh profaccDocker_complex.launch   # any launch file in src/profacc/launch/
 ```
 
 You will see ROS start up several nodes. The bag file replays the lead car velocity trace, the ACC controller computes acceleration commands, and the ego car model responds. All topics are recorded to a new bag file (`profacc_*.bag`) in the workspace root.
@@ -154,16 +171,18 @@ When the bag file finishes playing (or you want to stop early), press **Ctrl+C**
 
 ### What to expect
 
-The terminal will show log output from the various nodes. To see the simulation in action, open a second terminal and connect to the running container:
+The terminal will show log output from the various nodes. To see the simulation
+in action, open a **second terminal on your host** and join the running
+container (the workspace is sourced for you automatically):
 
 ```bash
-# Find the container name
-docker ps
-
-# Connect to it
-docker exec -it <container_name> /bin/bash
-source /ros/catkin_ws/devel/setup.bash
+./scripts/join.sh
 ```
+
+`join.sh` connects to the container named `rossim` (the default that
+`run.sh` creates), so there is no need to look up the container name or type a
+long `docker exec` command. If you started the simulation with a custom name
+(`./scripts/run.sh --name egocarB ...`), pass the same name: `./scripts/join.sh egocarB`.
 
 Then try:
 
@@ -177,6 +196,84 @@ rostopic echo /egocar/car/state/vel_x
 # Watch the ACC acceleration commands
 rostopic echo /egocar/cmd_accel
 ```
+
+### Running two simulations at once (separate ROS masters)
+
+Each `run.sh` invocation starts its own container with its own `roscore`, so you
+can run two independent simulations side by side -- just give them different
+names. In two host terminals:
+
+```bash
+./scripts/run.sh --name carA --port 8888 profaccDocker.launch
+./scripts/run.sh --name carB --port 8889 profaccDocker_complex.launch
+```
+
+Give each one a different `--port` so their dashboards don't collide on the host
+(carA on `localhost:8888`, carB on `localhost:8889`). Join either one from
+another terminal:
+
+```bash
+./scripts/join.sh carA
+./scripts/join.sh carB
+```
+
+Because each container has its own ROS master, the two simulations do not see
+each other's topics -- they are fully isolated.
+
+---
+
+## Live Dashboard
+
+A small web dashboard shows the cars in the simulation updating in real time in
+your browser. It runs as a ROS node and needs **no extra software** -- just
+`rospy` and the Python standard library (details in
+[`dashboard/README.md`](dashboard/README.md)). It has two views:
+
+- **Overhead** -- an ego-centric top-down view of the selected car, the car
+  ahead, and any cars behind, placed by their odometry.
+- **Data** -- value tiles for the selected car (speed, commanded acceleration,
+  lead distance, relative velocity, odometer).
+
+The dashboard **discovers the cars** automatically (any namespace publishing
+`car/state/vel_x`), so `leadcar`, `egocar`, `egocar1`, ... all appear as
+buttons at the top -- click to **swap** which car you are watching. This works
+for a single car or a whole platoon.
+
+With a simulation running (`./scripts/run.sh`), start the dashboard from a second
+host terminal:
+
+```bash
+./scripts/dashboard.sh
+```
+
+Then open <http://localhost:8888> in your browser. Press **Ctrl+C** to stop the
+dashboard; the simulation keeps running.
+
+### Text dashboard (SSH / no browser)
+
+When you are logged into the car over SSH with no web access, use the text
+version instead. It does the same car discovery and prints a refreshing table
+(plus a front-to-back ordering) right in the terminal -- no browser, no ports:
+
+```bash
+./scripts/dashboard.sh --text            # the sim, in the container
+# or, directly on the real vehicle where ROS is sourced:
+python3 dashboard/dashboard_tui.py --mode live
+```
+
+There are two modes:
+
+| Mode | What it shows |
+|------|---------------|
+| `sim` (default) | the fields available in simulation |
+| `live` | the same fields plus extra real-vehicle fields, for running on the actual car |
+
+```bash
+./scripts/dashboard.sh --mode live
+```
+
+The `live` set is a superset that grows as real-car topics come online -- see
+`dashboard/dashboard.py` (the `LIVE_EXTRA_FIELDS` list) and `dashboard/README.md`.
 
 ---
 
@@ -246,22 +343,6 @@ All Docker launch files are in `src/profacc/launch/`:
 | `profaccDocker_test1.launch` | 1 | simple | Ego starts closer (x0=15m) and faster (v0=2.5 m/s). |
 | `profaccDocker_test2.launch` | 1 | complex | Adds 10m extra buffer to `lead_dist`. |
 | `profaccDocker_complex.launch` | 1 | complex | Same as basic but with the complex vehicle model. |
-| `profaccDocker_homework3.launch` | 1 | complex | Uses a different bag file, starts at t=310s. |
-| `profaccDocker_homework3extra.launch` | 4 | complex | Multi-car cascade (see below). |
-
-### Multi-car cascade
-
-`profaccDocker_homework3extra.launch` chains 4 ACC-controlled vehicles behind a lead car:
-
-```
-leadcar (x0=120m) --> egocar (x0=100m) --> egocar1 (x0=70m) --> egocar2 (x0=45m) --> egocar3 (x0=20m)
-```
-
-Each ego car runs its own `profacc` node and follows the car directly ahead. This is useful for studying string stability -- how disturbances propagate (or dampen) through a platoon.
-
-```bash
-roslaunch profacc profaccDocker_homework3extra.launch
-```
 
 ---
 

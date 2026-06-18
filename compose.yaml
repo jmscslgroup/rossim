@@ -1,0 +1,28 @@
+# Docker Compose for the rossim ACC workspace.
+#
+# This service mounts the current directory into the ROS container so you can
+# build and run the simulation without typing long `docker run --mount ...`
+# commands. The `docker compose` command is the same on macOS, Windows, and
+# Linux, so it doubles as a cross-platform wrapper.
+#
+# Common commands:
+#   docker compose run --rm ros                 # interactive shell in the workspace
+#   docker compose run --rm ros catkin_make     # build the workspace
+#   ./scripts/run.sh                            # build + launch the default simulation
+#
+services:
+  ros:
+    image: sprinkjm/rosempty          # intentionally no :latest tag -> multi-arch friendly
+    working_dir: /ros/catkin_ws
+    volumes:
+      - .:/ros/catkin_ws              # bind-mount this repo into the container
+    stdin_open: true                  # keep STDIN open (docker run -i)
+    tty: true                         # allocate a pseudo-TTY (docker run -t)
+    command: /bin/bash
+    # Published so the live dashboard (dashboard/dashboard.py) is reachable at
+    # http://localhost:8888 on the host. Override the host port with the
+    # ROSSIM_DASH_PORT env var (e.g. a second car -> ROSSIM_DASH_PORT=8889).
+    # NOTE: `docker compose run` only publishes ports when given --service-ports;
+    # scripts/run.sh passes that flag for you.
+    ports:
+      - "${ROSSIM_DASH_PORT:-8888}:8888"
