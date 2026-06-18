@@ -249,6 +249,18 @@ host terminal:
 Then open <http://localhost:8888> in your browser. Press **Ctrl+C** to stop the
 dashboard; the simulation keeps running.
 
+### Text dashboard (SSH / no browser)
+
+When you are logged into the car over SSH with no web access, use the text
+version instead. It does the same car discovery and prints a refreshing table
+(plus a front-to-back ordering) right in the terminal -- no browser, no ports:
+
+```bash
+./scripts/dashboard.sh --text            # the sim, in the container
+# or, directly on the real vehicle where ROS is sourced:
+python3 dashboard/dashboard_tui.py --mode live
+```
+
 There are two modes:
 
 | Mode | What it shows |

@@ -1,8 +1,16 @@
 # rossim live dashboard
 
-A small web dashboard for watching the simulated (or, later, real) cars in real
-time. It runs as a ROS node that **discovers the cars** running in the system
-and serves a web page at `http://localhost:8888` with two views:
+A small dashboard for watching the simulated (or, later, real) cars in real
+time, in **two forms** that share the same car discovery:
+
+- **Web** (`dashboard.py`) -- a browser dashboard at `http://localhost:8888`.
+- **Text** (`dashboard_tui.py`) -- a terminal dashboard for SSH / no browser.
+
+The shared discovery and field configuration live in `cardata.py`, so both
+forms find cars and read the same fields identically.
+
+The web version runs as a ROS node that **discovers the cars** running in the
+system and serves a web page with two views:
 
 - **Overhead** -- an ego-centric top-down view of the selected car, the car
   ahead, and any cars behind, positioned by their odometry.
@@ -17,7 +25,7 @@ It has **no external dependencies**: just `rospy` (already in the ROS container)
 and the Python standard library (`http.server` + Server-Sent Events). No
 rosbridge, no websocket library, nothing to `pip install`.
 
-## Quick start
+## Quick start (web)
 
 From the host, with a simulation already running (`./scripts/run.sh`):
 
@@ -31,6 +39,40 @@ Then open <http://localhost:8888>. Or run it by hand inside the container:
 ./scripts/join.sh
 python3 /ros/catkin_ws/dashboard/dashboard.py --mode sim
 ```
+
+## Text dashboard (SSH / no browser)
+
+When you are logged into the car over SSH with no web access, use the text
+version. It does the same car discovery and prints a table that refreshes in
+place, plus a front-to-back ordering of the cars. No browser, no ports.
+
+Run it directly wherever ROS is sourced (e.g. on the real vehicle):
+
+```bash
+python3 dashboard/dashboard_tui.py --mode live
+```
+
+Or, for the sim in the container, from the host:
+
+```bash
+./scripts/dashboard.sh --text          # add --mode live for the real vehicle
+```
+
+Example output:
+
+```
+car         speed      cmd_accel  lead_dist  rel_vel    odom
+-------------------------------------------------------------------
+egocar      4.20       +0.85      18.30      -0.40      73.1
+leadcar     5.00                                        80.0
+
+order (front -> back):  leadcar 80.0m  --6.9m--  egocar 73.1m
+```
+
+Blank cells mean the field does not exist for that car (e.g. the replayed lead
+car has no controller). A `*` after a value means it is stale. Extra flags:
+`--once` prints a single snapshot and exits; `--no-clear` appends frames instead
+of redrawing (handy when piping to a log).
 
 ## How cars are discovered
 
