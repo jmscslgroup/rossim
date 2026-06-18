@@ -21,9 +21,9 @@ Run inside the running simulation container (or use scripts/dashboard.sh):
 Then open http://localhost:8888 in your browser.
 
 Modes:
-    --mode sim    fields available in simulation (default)
-    --mode live   superset for the real vehicle; extra fields live in
-                  LIVE_EXTRA_FIELDS below and appear once their topics publish.
+    --mode sim    namespaced simulation cars (leadcar, egocar, ...) (default)
+    --mode live   a single real vehicle read from absolute topics
+                  (/car/state/vel_x, /cmd_accel, ...). See cardata.py.
 """
 
 import argparse
@@ -35,19 +35,19 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import rospy
 
-from cardata import POSITION_KEY, CarRegistry, get_fields
+from cardata import CarRegistry, get_config
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def config_payload(mode, fields):
+def config_payload(cfg):
     return {
-        "mode": mode,
-        "position_key": POSITION_KEY,
+        "mode": cfg["mode"],
+        "position_key": cfg["position_key"],
         "fields": [
             {"key": f["key"], "label": f["label"], "unit": f["unit"],
              "topic": f["topic"], "precision": f["precision"], "signed": f["signed"]}
-            for f in fields
+            for f in cfg["fields"]
         ],
     }
 
@@ -118,9 +118,9 @@ def main():
 
     rospy.init_node("dashboard", anonymous=True)
 
-    fields = get_fields(args.mode)
+    cfg = get_config(args.mode)
 
-    registry = CarRegistry(fields, scan_period=args.scan_period)
+    registry = CarRegistry(cfg, scan_period=args.scan_period)
     registry.start()
 
     with open(os.path.join(HERE, "index.html"), "r") as fh:
@@ -128,7 +128,7 @@ def main():
 
     server = DashServer((args.host, args.port), Handler)
     server.registry = registry
-    server.config_payload = config_payload(args.mode, fields)
+    server.config_payload = config_payload(cfg)
     server.html = html
     server.interval = 1.0 / max(args.rate, 1.0)
     server.stale_after = args.stale_after

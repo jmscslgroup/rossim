@@ -124,6 +124,8 @@ async function init() {
   for (const btn of document.querySelectorAll("#views .chip")) {
     btn.addEventListener("click", () => setView(btn.dataset.view));
   }
+  // Default to the data tiles when there's no position field (e.g. live mode).
+  view = CONFIG.position_key ? "overhead" : "tiles";
   setView(view);
   connect();
 }
@@ -212,10 +214,21 @@ function renderOverhead(cars, names) {
   const W = 1000, H = 240, cx = W / 2, roadY = H / 2;
 
   const ego = cars[selectedCar];
-  const egoPos = ego ? posOf(ego) : null;
-  if (!ego || egoPos === null) {
-    addText(svg, cx, roadY, "waiting for position data...", "var(--muted)", 16, "middle");
+  if (!ego) {
+    addText(svg, cx, roadY, "waiting for a car...", "var(--muted)", 16, "middle");
     document.getElementById("readout").innerHTML = "";
+    return;
+  }
+  const egoPos = posOf(ego);
+  if (!CONFIG.position_key || egoPos === null) {
+    // No relative positioning (e.g. a single real vehicle with no odometry).
+    drawRoad(svg, W, H, roadY, 0, 8);
+    drawCar(svg, cx, roadY, { name: selectedCar, car: ego, rel: 0 }, true, false);
+    const note = CONFIG.position_key ? "waiting for position..."
+                                     : "single vehicle (no relative positioning)";
+    addText(svg, cx, roadY + 46, note, "var(--muted)", 13, "middle");
+    addText(svg, W - 16, 26, "forward →", "var(--muted)", 13, "end");
+    renderReadout(ego, null, null);
     return;
   }
 

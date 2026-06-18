@@ -74,31 +74,39 @@ car has no controller). A `*` after a value means it is stale. Extra flags:
 `--once` prints a single snapshot and exits; `--no-clear` appends frames instead
 of redrawing (handy when piping to a log).
 
-## How cars are discovered
+## sim vs live (two different topic layouts)
 
-Any ROS namespace that publishes `<car>/car/state/vel_x` is treated as a car, so
-`leadcar`, `egocar`, `egocar1`, ... are all found automatically with no
-configuration. For each car the node subscribes to the standard fields that
-actually exist for it -- so the replayed lead car (which has no controller)
-simply shows fewer tiles than an ego car. A car that commands acceleration
-(publishes `cmd_accel`) is labelled **ego**; the rest are **lead**.
+The simulation and the real vehicle publish on different topics, so `--mode`
+selects between two layouts defined in `cardata.py`:
 
-Positions in the overhead view come from each car's odometer (`odom_x`): the
-selected car sits at the centre, others are offset by their distance relative to
-it (`+` ahead, `-` behind), and the nearest car ahead and behind are highlighted.
+| Mode | Layout | Cars | Topics |
+|------|--------|------|--------|
+| `sim` (default) | namespaced, discovered | `leadcar`, `egocar`, `egocar1`, ... | relative, e.g. `/egocar/cmd_accel` |
+| `live` | a single real vehicle | one car (`car`) | absolute, e.g. `/cmd_accel`, `/car/state/vel_x` |
 
-## sim vs live
+**sim discovery.** Any namespace that publishes `<ns>/car/state/vel_x` is a car,
+found automatically; each car subscribes only to the fields that exist for it
+(so the replayed lead car shows fewer tiles than an ego car). A car that
+commands acceleration (`cmd_accel`) is labelled **ego**, the rest **lead**.
+Positions in the overhead view come from each car's odometer (`odom_x`).
 
-The same script serves two field sets, selected by `--mode`:
+**live.** The real vehicle publishes one car's data at absolute topics. The
+field map (`LIVE_FIELDS` in `cardata.py`) was taken from a bag recorded on the
+car: `speed` ← `/car/state/vel_x`, `cmd_accel` ← `/cmd_accel`, `accel_in` ←
+`/car/cruise/accel_input`, `lead_dist` ← `/lead_dist`, `rel_vel` ← `/rel_vel`.
+There is no odometry on the vehicle, so live mode has no position field and the
+overhead view shows the single vehicle (the data tiles are the main view; the
+web UI defaults to **Data** in live mode). Add more real-vehicle fields by
+appending to `LIVE_FIELDS`; `std_msgs/Float64` topics work as-is, other message
+types need handling added in `CarRegistry`.
 
-| Mode | Fields |
-|------|--------|
-| `sim` (default) | speed, commanded accel, lead distance, relative velocity, odometer |
-| `live` | the `sim` fields **plus** extra real-vehicle fields |
+You can exercise live mode locally without a car by replaying the recording
+(it publishes the real absolute topics):
 
-`live` is a superset for when this runs on the real car. Add real-car fields by
-editing `LIVE_EXTRA_FIELDS` in `dashboard.py`; they appear automatically in
-`--mode live` once those topics publish.
+```bash
+rosbag play mytest.bag                       # in one shell
+python3 dashboard/dashboard_tui.py --mode live   # in another
+```
 
 ## Options
 

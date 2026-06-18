@@ -5,8 +5,15 @@ Shared car-discovery and field configuration for the rossim dashboards.
 Both the web dashboard (dashboard.py) and the text dashboard (dashboard_tui.py)
 import from here, so they discover cars and read the same fields identically.
 
-A "car" is any ROS namespace that publishes CAR_DETECT_SUFFIX, so leadcar,
-egocar, egocar1, ... are found automatically as they appear, with no config.
+There are two layouts, selected by mode:
+
+* sim  -- the simulation namespaces each vehicle (/leadcar/..., /egocar/...),
+          so cars are discovered by scanning for "<ns>/car/state/vel_x" and the
+          field topics are read relative to that namespace.
+* live -- the real vehicle publishes a single car's data at absolute topics
+          (/car/state/vel_x, /cmd_accel, /lead_dist, ...), so there is one car
+          read from those absolute topics. (Names taken from a bag recorded on
+          the car.)
 
 Depends only on rospy + the Python standard library.
 """
@@ -18,42 +25,66 @@ import time
 import rospy
 from std_msgs.msg import Float64
 
-# --- Per-car field configuration --------------------------------------------
-# Each field is one reading, bound to a topic *relative to a car's namespace*.
-#
-# Keys:
+# --- field definitions -------------------------------------------------------
+# Each field is one reading. Keys:
 #   key       short id used internally and in the UIs
 #   label     human label
-#   topic     topic suffix within the car namespace (egocar -> /egocar/<topic>)
-#   unit      unit string
-#   precision decimal places to display
-#   signed    True -> show a leading +/- and color/flag by sign
+#   topic     in sim: a suffix relative to the car namespace (egocar -> /egocar/<topic>)
+#             in live: an absolute topic (starts with "/")
+#   unit, precision, signed   display formatting
 
-POSITION_KEY = "odom"                   # field used as a car's position (overhead view)
-CAR_DETECT_SUFFIX = "car/state/vel_x"   # a namespace with this topic is treated as a car
+# --- sim layout (namespaced, discovered) ------------------------------------
+SIM_POSITION_KEY = "odom"               # field used as a car's position (overhead view)
+SIM_DETECT_SUFFIX = "car/state/vel_x"   # /<ns>/car/state/vel_x -> car <ns>
 
 SIM_FIELDS = [
-    {"key": "speed",      "label": "Speed",     "topic": "car/state/vel_x", "unit": "m/s",  "precision": 2, "signed": False},
-    {"key": "cmd_accel",  "label": "Cmd Accel", "topic": "cmd_accel",       "unit": "m/s²", "precision": 2, "signed": True},
-    {"key": "lead_dist",  "label": "Lead Dist", "topic": "lead_dist",       "unit": "m",    "precision": 2, "signed": False},
-    {"key": "rel_vel",    "label": "Rel Vel",   "topic": "rel_vel",         "unit": "m/s",  "precision": 2, "signed": True},
-    {"key": POSITION_KEY, "label": "Odometer",  "topic": "odom_x",          "unit": "m",    "precision": 1, "signed": False},
+    {"key": "speed",            "label": "Speed",     "topic": "car/state/vel_x", "unit": "m/s",  "precision": 2, "signed": False},
+    {"key": "cmd_accel",        "label": "Cmd Accel", "topic": "cmd_accel",       "unit": "m/s²", "precision": 2, "signed": True},
+    {"key": "lead_dist",        "label": "Lead Dist", "topic": "lead_dist",       "unit": "m",    "precision": 2, "signed": False},
+    {"key": "rel_vel",          "label": "Rel Vel",   "topic": "rel_vel",         "unit": "m/s",  "precision": 2, "signed": True},
+    {"key": SIM_POSITION_KEY,   "label": "Odometer",  "topic": "odom_x",          "unit": "m",    "precision": 1, "signed": False},
 ]
 
-# Extra fields only available on the real vehicle. Add entries here (same shape)
-# as real-car topics come online; they appear only in --mode live.
-LIVE_EXTRA_FIELDS = [
-    # {"key": "accel_meas", "label": "Accel (IMU)", "topic": "imu/accel_x",     "unit": "m/s²", "precision": 2, "signed": True},
-    # {"key": "steer",      "label": "Steering",    "topic": "can/steer_angle", "unit": "deg",       "precision": 1, "signed": True},
+# --- live layout (single real vehicle, absolute topics) ---------------------
+# Topic names verified against a bag recorded on the car. Add more real-vehicle
+# fields here (absolute topics) as you want them on the dashboard; they appear
+# automatically once they are publishing.
+LIVE_CAR_NAME = "car"
+LIVE_DETECT_TOPIC = "/car/state/vel_x"  # the car is "present" when this publishes
+
+LIVE_FIELDS = [
+    {"key": "speed",     "label": "Speed",       "topic": "/car/state/vel_x",        "unit": "m/s",  "precision": 2, "signed": False},
+    {"key": "cmd_accel", "label": "Cmd Accel",   "topic": "/cmd_accel",              "unit": "m/s²", "precision": 2, "signed": True},
+    {"key": "accel_in",  "label": "Accel In",    "topic": "/car/cruise/accel_input", "unit": "m/s²", "precision": 2, "signed": True},
+    {"key": "lead_dist", "label": "Lead Dist",   "topic": "/lead_dist",              "unit": "m",    "precision": 2, "signed": False},
+    {"key": "rel_vel",   "label": "Rel Vel",     "topic": "/rel_vel",                "unit": "m/s",  "precision": 2, "signed": True},
+    # Further real-vehicle topics available in the recording, for later:
+    #   /car/gps/heading (Float64), /acc/set_speed2 (Float64),
+    #   /car/cruise/... , /steer_torque_cmd (Float64), /highbeams (Float64)
+    # Non-Float64 data (radar tracks, IMU, GPS fix, wheel speeds) needs message
+    # handling added in CarRegistry -- see README.
 ]
 
 
-def get_fields(mode):
-    """Return the field list for the given mode ('sim' or 'live')."""
-    fields = list(SIM_FIELDS)
+def get_config(mode):
+    """Return the layout config for a mode ('sim' or 'live')."""
     if mode == "live":
-        fields = fields + LIVE_EXTRA_FIELDS
-    return fields
+        return {
+            "mode": "live",
+            "fields": LIVE_FIELDS,
+            "position_key": None,          # no odometry on the real vehicle (yet)
+            "discovery": "single",
+            "car_name": LIVE_CAR_NAME,
+            "detect": LIVE_DETECT_TOPIC,
+        }
+    return {
+        "mode": "sim",
+        "fields": SIM_FIELDS,
+        "position_key": SIM_POSITION_KEY,
+        "discovery": "namespace",
+        "car_name": None,
+        "detect": SIM_DETECT_SUFFIX,
+    }
 
 
 def format_value(value, field):
@@ -69,8 +100,11 @@ def format_value(value, field):
 class CarRegistry(object):
     """Discovers cars from the ROS graph and tracks the latest value per field."""
 
-    def __init__(self, fields, scan_period=1.0):
-        self.fields = fields
+    def __init__(self, config, scan_period=1.0):
+        self.fields = config["fields"]
+        self.discovery = config["discovery"]   # "namespace" | "single"
+        self.detect = config["detect"]
+        self.car_name = config.get("car_name")
         self._scan_period = scan_period
         self._lock = threading.Lock()
         self._values = {}    # (car, key) -> (value, monotonic_ts)
@@ -89,9 +123,20 @@ class CarRegistry(object):
             return
         names = set(t for t, _type in published)
 
-        detect = re.compile(r"^/([^/]+)/" + re.escape(CAR_DETECT_SUFFIX) + r"$")
-        cars = sorted({m.group(1) for m in (detect.match(t) for t in names) if m})
+        if self.discovery == "single":
+            present = self._scan_single(names)
+        else:
+            present = self._scan_namespace(names)
 
+        with self._lock:
+            new_cars = [c for c in present if c not in self._present]
+            self._present = present
+        for c in new_cars:
+            rospy.loginfo("dashboard: discovered car '%s' (%d fields)", c, len(present[c]))
+
+    def _scan_namespace(self, names):
+        detect = re.compile(r"^/([^/]+)/" + re.escape(self.detect) + r"$")
+        cars = sorted({m.group(1) for m in (detect.match(t) for t in names) if m})
         present = {}
         for car in cars:
             avail = set()
@@ -101,12 +146,20 @@ class CarRegistry(object):
                     avail.add(f["key"])
                     self._ensure_sub(car, f, topic)
             present[car] = avail
+        return present
 
-        with self._lock:
-            new_cars = [c for c in present if c not in self._present]
-            self._present = present
-        for c in new_cars:
-            rospy.loginfo("dashboard: discovered car '%s' (%d fields)", c, len(present[c]))
+    def _scan_single(self, names):
+        present = {}
+        if self.detect in names:
+            car = self.car_name
+            avail = set()
+            for f in self.fields:
+                topic = f["topic"]  # absolute
+                if topic in names:
+                    avail.add(f["key"])
+                    self._ensure_sub(car, f, topic)
+            present[car] = avail
+        return present
 
     def _ensure_sub(self, car, field, topic):
         key = (car, field["key"])
