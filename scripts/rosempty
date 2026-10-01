@@ -46,6 +46,10 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 HOST_DIR="$(pwd)"
+# Git Bash reports /c/Users/...; Docker on Windows needs C:/Users/... ("pwd -W").
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) HOST_DIR="$(pwd -W 2>/dev/null || pwd)" ;;
+esac
 
 # Mounting your whole home directory (or /) works, but is rarely what you want.
 if [ "$HOST_DIR" = "$HOME" ] || [ "$HOST_DIR" = "/" ]; then
@@ -67,6 +71,7 @@ fi
 
 # Git Bash on Windows rewrites "/ros/..." arguments into Windows paths; stop it.
 export MSYS_NO_PATHCONV=1
+export MSYS2_ARG_CONV_EXCL="*"
 
 exec docker run --rm "${TTY_ARGS[@]}" "${PORT_ARGS[@]}" \
   -v "$HOST_DIR:$MOUNT_POINT" \

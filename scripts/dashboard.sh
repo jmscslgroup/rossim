@@ -15,6 +15,12 @@
 #
 set -e
 
+# Git Bash / MSYS on Windows rewrites arguments that look like Unix paths
+# (e.g. /bin/bash -> C:/Program Files/Git/usr/bin/bash) before Docker sees them,
+# which breaks the container. Turn that rewriting off; harmless elsewhere.
+export MSYS_NO_PATHCONV=1
+export MSYS2_ARG_CONV_EXCL="*"
+
 NAME="${ROSSIM_NAME:-rossim}"
 MODE="sim"
 TEXT=0
