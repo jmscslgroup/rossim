@@ -23,7 +23,101 @@ or using bibtex:
 
 ---
 
+## Step 0: Install your tools (macOS and Windows differ!)
+
+Every later step is the same on all platforms **once you have a Linux-style
+terminal with `docker` and `git`**. Getting there is the one place where macOS
+and Windows diverge:
+
+|  | macOS | Windows | Linux |
+|--|-------|---------|-------|
+| Terminal to use | Terminal (zsh) | **Ubuntu in WSL** (not PowerShell, cmd, or Git Bash) | your usual terminal |
+| Docker | Docker Desktop | Docker Desktop **+ WSL integration for Ubuntu** | Docker Engine + compose plugin |
+| git | Xcode Command Line Tools | comes with Ubuntu | your package manager |
+| Clone the repo into | anywhere, e.g. `~/cs3892` | WSL home, `~` (**not** `/mnt/c/...`) | anywhere |
+| Shell startup file | `~/.zshrc` | `~/.bashrc` | `~/.bashrc` (usually) |
+
+### macOS
+
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+   (pick **Apple Silicon** or **Intel** to match *Apple menu → About This Mac*).
+   Start it and wait until it reports the engine is running.
+2. Open **Terminal** and run `git --version`. If git is missing, macOS offers to
+   install the Command Line Tools; accept.
+
+### Windows: use WSL (Ubuntu)
+
+The helper scripts (`./scripts/*.sh`) are Linux shell scripts. If you type them
+into **PowerShell** or **cmd**, Windows pops up a dialog asking which program
+should open the `.sh` file. (Windows Terminal and the VS Code terminal open
+PowerShell by default.) Do every step in this README in an **Ubuntu (WSL)**
+terminal instead:
+
+1. Install WSL **with Ubuntu** once, from an administrator PowerShell, then reboot:
+   ```powershell
+   wsl --install -d Ubuntu
+   ```
+   The first time Ubuntu opens, it asks you to create a Linux username and password.
+2. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+   (keep the default "Use WSL 2" option). In Docker Desktop, open
+   **Settings → Resources → WSL integration** and turn it on for **Ubuntu**.
+3. Make Ubuntu the default, so `wsl` doesn't drop you into Docker's own
+   internal distribution. In PowerShell:
+   ```powershell
+   wsl -l -v                      # lists Ubuntu, docker-desktop, ...
+   wsl --set-default Ubuntu
+   ```
+   `docker-desktop` (and `docker-desktop-data` on older versions) belong to
+   Docker Desktop. They are normal and must stay installed, but **never work
+   in them**: they have no `git` and odd prompts like `/tmp/docker-desktop-root/...#`.
+4. Open a WSL shell: the **Ubuntu** app from the Start menu, the Ubuntu tab in
+   Windows Terminal, or type `wsl` in PowerShell. You're in the right place when
+   the prompt looks like `you@PC:~$`, not `PS C:\Users\you>` or `...docker-desktop...#`.
+5. Clone **inside WSL's home folder** (`cd ~` first, in Step 1), not under
+   `/mnt/c/...`. Docker mounts are much faster there, and Git for Windows won't
+   convert the scripts to Windows line endings. You can still open the folder
+   from Windows Explorer at `\\wsl$\Ubuntu\home\<you>\rossim`, or in VS Code
+   with `code .`.
+
+Seeing `/usr/bin/env: 'bash\r': No such file or directory`? The scripts got
+Windows (CRLF) line endings, usually from cloning with Git for Windows. In the
+Ubuntu terminal, from inside `rossim/`:
+
+```bash
+sed -i 's/\r$//' scripts/*.sh scripts/rosempty   # quick fix: strip the CRs
+git config --global core.autocrlf false           # keep WSL's git from converting
+```
+
+For a clean long-term setup, re-clone inside WSL's home folder as in item 5
+and copy over your `mytest.bag` and any files of your own.
+
+### Linux
+
+Install [Docker Engine](https://docs.docker.com/engine/install/) and the
+Docker Compose plugin, then let your user run Docker without `sudo`:
+
+```bash
+sudo usermod -aG docker $USER     # then log out and back in
+```
+
+### Check (all platforms)
+
+In the terminal from above (on Windows: the Ubuntu terminal):
+
+```bash
+git --version
+docker --version
+docker compose version
+```
+
+All three should print a version. `Cannot connect to the Docker daemon`
+means Docker Desktop isn't running (or, on Windows, WSL integration is off for Ubuntu).
+
+---
+
 ## Step 1: Clone this repository
+
+In your terminal from Step 0 (Windows: the Ubuntu terminal, after `cd ~`):
 
 ```bash
 git clone https://github.com/jmscslgroup/rossim rossim
@@ -34,12 +128,7 @@ This gives you the workspace skeleton: launch files, setup scripts, and this REA
 
 ---
 
-## Step 2: Install and verify Docker
-
-### Install Docker
-
-- **macOS / Windows:** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-- **Linux:** Install [Docker Engine](https://docs.docker.com/engine/install/)
+## Step 2: Pull and verify the ROS image
 
 ### Pull the ROS Docker image
 
@@ -188,10 +277,11 @@ Run `rosempty --help` for all options. A few details:
 - Each `rosempty` call starts its **own** fresh container with no `roscore`
   running. Use it for standalone tools like `rosbag`. To talk to a running
   simulation, use `./scripts/join.sh` instead (see Step 7).
-- **Linux only:** files created by the container are owned by `root`. Fix
-  them with `sudo chown $USER <file>` if needed. (macOS and Windows Docker
-  Desktop map ownership to your user automatically.)
-- **Windows:** run it from WSL (recommended) or Git Bash, not PowerShell/cmd.
+- **Linux and Windows (WSL):** files created by the container may be owned by
+  `root`. Fix them with `sudo chown $USER <file>` if needed. (macOS Docker
+  Desktop maps ownership to your user automatically.)
+- **Windows:** run it from the Ubuntu (WSL) terminal (see Step 0), not
+  PowerShell or cmd.
 
 ---
 
