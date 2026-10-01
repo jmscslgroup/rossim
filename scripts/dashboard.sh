@@ -10,8 +10,11 @@
 #   ./scripts/dashboard.sh --name carB     # a container started with --name carB
 #   ./scripts/dashboard.sh --text          # TEXT dashboard in this terminal (no browser)
 #
-# Web dashboard: open http://localhost:8888 in your browser (the port run.sh
-# published). Text dashboard: renders right here in the terminal.
+# Web dashboard: open the URL this script prints -- http://localhost:8888
+# unless run.sh used another port (--port, or 8888 was busy, e.g. Jupyter).
+# The host port is fixed when run.sh starts the container; to change it,
+# restart the sim with ./scripts/run.sh --port NNNN.
+# Text dashboard: renders right here in the terminal.
 #
 set -e
 
@@ -47,8 +50,16 @@ if [ "$TEXT" -eq 1 ]; then
   echo "==> Starting '$MODE' TEXT dashboard in container '$NAME' (Ctrl+C to stop)"
 else
   SCRIPT="dashboard.py"
+  # Ask Docker which host port container port 8888 was published on.
+  HOST_PORT="$(docker port "$NAME" 8888/tcp 2>/dev/null | head -1 | sed 's/.*://')"
   echo "==> Starting '$MODE' web dashboard in container '$NAME'"
-  echo "==> Open http://localhost:8888 in your browser (or the --port you gave run.sh)"
+  if [ -n "$HOST_PORT" ]; then
+    echo "==> Open http://localhost:$HOST_PORT in your browser"
+  else
+    echo "==> WARNING: container '$NAME' has no dashboard port published to the host,"
+    echo "    so the browser can't reach it. Restart the sim with ./scripts/run.sh,"
+    echo "    or use the text dashboard:  ./scripts/dashboard.sh --text"
+  fi
   echo "==> Ctrl+C to stop the dashboard (the simulation keeps running)"
 fi
 

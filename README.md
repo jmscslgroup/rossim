@@ -76,8 +76,26 @@ terminal instead:
 5. Clone **inside WSL's home folder** (`cd ~` first, in Step 1), not under
    `/mnt/c/...`. Docker mounts are much faster there, and Git for Windows won't
    convert the scripts to Windows line endings. You can still open the folder
-   from Windows Explorer at `\\wsl$\Ubuntu\home\<you>\rossim`, or in VS Code
-   with `code .`.
+   from Windows Explorer (see below), or in VS Code with `code .`.
+
+**Moving files between Windows and WSL.** The two see each other's files at
+these paths:
+
+| From | To reach | Use this path |
+|------|----------|---------------|
+| Windows (Explorer, MATLAB, ...) | your WSL home | `\\wsl.localhost\Ubuntu\home\<linux-user>` (older Windows 10: `\\wsl$\Ubuntu\...`), or **Linux → Ubuntu** in Explorer's sidebar |
+| Ubuntu (WSL) | your Windows files | `/mnt/c/Users/<windows-user>/` (e.g. `.../Downloads`) |
+
+- From inside WSL, `explorer.exe .` opens the current folder in Windows Explorer.
+  Drag files in and out there.
+- Copy a download into the repo from the Ubuntu terminal:
+  `cp /mnt/c/Users/<windows-user>/Downloads/hwilexample.bag ~/rossim/mytest.bag`
+- Your Linux and Windows usernames can differ. `ls /mnt/c/Users` lists the
+  Windows ones. If the distribution is called `Ubuntu-22.04` or similar,
+  `wsl -l` in PowerShell shows the exact name to use in the path.
+- Use the files **in place** from Windows (e.g. open a recorded `profacc_*.bag`
+  in MATLAB via the `\\wsl.localhost\...` path) or copy them out; just keep the
+  repo itself inside WSL.
 
 Seeing `/usr/bin/env: 'bash\r': No such file or directory`? The scripts got
 Windows (CRLF) line endings, usually from cloning with Git for Windows. In the
@@ -313,6 +331,9 @@ Download the example bag file from Brightspace (`hwilexample.bag`) and place it 
 cp /path/to/hwilexample.bag mytest.bag
 ```
 
+On Windows, run this in the Ubuntu terminal; your Windows Downloads folder is
+`/mnt/c/Users/<windows-user>/Downloads/` (see Step 0).
+
 This file contains a recorded velocity trace from a real vehicle and is replayed as the lead car in simulation.
 
 ---
@@ -445,8 +466,18 @@ host terminal:
 ./scripts/dashboard.sh
 ```
 
-Then open <http://localhost:8888> in your browser. Press **Ctrl+C** to stop the
-dashboard; the simulation keeps running.
+Then open the URL it prints (normally <http://localhost:8888>) in your browser.
+Press **Ctrl+C** to stop the dashboard; the simulation keeps running.
+
+**Port 8888 already taken (e.g. Jupyter)?** The host port is chosen when
+`run.sh` starts the container, not by `dashboard.sh`. If 8888 is busy,
+`run.sh` automatically uses the next free port (8889, 8890, ...) and prints it,
+and `dashboard.sh` prints the matching URL. To choose the port yourself,
+restart the simulation with:
+
+```bash
+./scripts/run.sh --port 8890
+```
 
 ### Text dashboard (SSH / no browser)
 
