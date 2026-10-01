@@ -86,6 +86,115 @@ If you see an empty listing or an error, double-check that you are in the
 
 ---
 
+## Optional: a `rosempty` command-line shortcut
+
+`docker compose` only works from inside `rossim/`. For everyday ROS chores
+-- inspecting a bag with `rosbag info`, repairing a bag, poking around with
+ROS tools -- it is handy to have one short command that starts the container
+**on whatever folder you are currently in**. That is what
+[`scripts/rosempty`](scripts/rosempty) does:
+
+```bash
+rosempty                              # interactive ROS shell in the current folder
+rosempty rosbag info mytest.bag       # run a single command, then exit
+```
+
+The current folder is mounted at `/ros/catkin_ws` inside the container (the
+same place `compose.yaml` puts it), so files you see on the host are the files
+the container sees, and anything the container writes (a repaired bag, a new
+recording) shows up back in that folder. The container is removed when you
+exit.
+
+> **Where to run it:** normally, run `rosempty` from your `rossim/` clone (or
+> the folder holding the bag files you're working with). If that folder has
+> been built with `catkin_make`, `devel/setup.bash` is sourced for you, so your
+> packages work too. It runs fine from **any** folder, but only that folder
+> (and its subfolders) will be visible inside the container -- e.g. you can't
+> reach `../other.bag`. `cd` to the right place first.
+
+### Install it (once)
+
+Put the script on your `PATH`. The easiest way is a symlink into a personal
+`bin` folder, so it stays up to date when you `git pull`. From the `rossim/`
+directory:
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf "$PWD/scripts/rosempty" ~/.local/bin/rosempty
+```
+
+Then make sure `~/.local/bin` is on your `PATH`. Add this line to your shell's
+startup file -- **`~/.zshrc`** if you use zsh (the macOS default) or
+**`~/.bashrc`** if you use bash (most Linux / WSL setups):
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Not sure which shell you have? Run `echo $SHELL`. Open a **new terminal** (or
+run `source ~/.zshrc` / `source ~/.bashrc`) and check that it works:
+
+```bash
+which rosempty     # should print .../.local/bin/rosempty
+cd ~/Downloads     # or any folder
+rosempty ls        # lists the folder's contents, as seen from inside the container
+```
+
+<details>
+<summary>Alternatives: put <code>scripts/</code> on your PATH, or use an alias</summary>
+
+Instead of the symlink, you can add the whole `scripts/` folder to your `PATH`
+in `~/.zshrc` / `~/.bashrc` (replace the path with where you cloned `rossim`):
+
+```bash
+export PATH="$HOME/path/to/rossim/scripts:$PATH"
+```
+
+Or define an alias:
+
+```bash
+alias rosempty="$HOME/path/to/rossim/scripts/rosempty"
+```
+
+If you skip installing entirely, `rossim/scripts/rosempty` still works when
+called by its full path from any folder.
+</details>
+
+### Common uses
+
+```bash
+# Summary of a bag: duration, topics, message counts
+rosempty rosbag info mytest.bag
+
+# Repair a bag whose recording was interrupted (Ctrl+C, crash, power loss).
+# "rosbag info" will report the bag is unindexed. reindex fixes it in place
+# and keeps the original as broken.orig.bag.
+rosempty rosbag reindex broken.bag
+
+# Migrate a bag recorded with older message definitions
+rosempty rosbag fix old.bag fixed.bag
+
+# Pull one topic out of a bag into CSV
+rosempty bash -c "rostopic echo -b mytest.bag -p /leadcar/car/state/vel_x > vel_x.csv"
+```
+
+Run `rosempty --help` for all options. A few details:
+
+- Commands containing shell features (`>`, `|`, `&&`, `*`) need to be wrapped
+  in `bash -c "..."`, as in the CSV example above. Otherwise your host shell
+  handles them, not the container.
+- `rosempty -p 8888 ...` also publishes a port to the host (for example, to view
+  a dashboard).
+- Each `rosempty` call starts its **own** fresh container with no `roscore`
+  running. Use it for standalone tools like `rosbag`. To talk to a running
+  simulation, use `./scripts/join.sh` instead (see Step 7).
+- **Linux only:** files created by the container are owned by `root`. Fix
+  them with `sudo chown $USER <file>` if needed. (macOS and Windows Docker
+  Desktop map ownership to your user automatically.)
+- **Windows:** run it from WSL (recommended) or Git Bash, not PowerShell/cmd.
+
+---
+
 ## Step 4: Clone the ROS packages for profacc
 
 A setup script clones all the packages needed for the profacc ACC simulation:

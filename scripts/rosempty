@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+#
+# rosempty -- run the sprinkjm/rosempty ROS container on the CURRENT folder.
+#
+# Whatever directory you run this from is mounted into the container at
+# /ros/catkin_ws (the container's working directory), so the files there --
+# bag files, a catkin workspace, etc. -- are visible to ROS tools. Files the
+# container writes (e.g. a repaired bag) land back in that same folder.
+#
+# Add this script to your PATH (see "Command-line shortcut" in the README) so
+# you can type `rosempty` from any folder.
+#
+# Usage:
+#   rosempty                              # interactive shell in the current folder
+#   rosempty rosbag info mytest.bag       # run one command, then exit
+#   rosempty rosbag reindex broken.bag    # repair a bag whose recording was cut off
+#   rosempty rosbag fix old.bag new.bag   # migrate a bag with outdated message types
+#   rosempty -p 8888 ...                  # also publish a port to the host
+#
+# If the folder is a built catkin workspace (it has devel/setup.bash), it is
+# sourced automatically, so your own packages work with rosrun/roslaunch too.
+#
+# Environment overrides:
+#   ROSEMPTY_IMAGE   image to run (default: sprinkjm/rosempty)
+#
+set -e
+
+IMAGE="${ROSEMPTY_IMAGE:-sprinkjm/rosempty}"
+MOUNT_POINT="/ros/catkin_ws"
+PORT_ARGS=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p|--port) PORT_ARGS+=(-p "$2:$2"); shift 2 ;;
+    -h|--help)
+      grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'
+      exit 0 ;;
+    --) shift; break ;;
+    *) break ;;   # first non-option word starts the command to run
+  esac
+done
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "rosempty: docker not found. Install Docker Desktop / Docker Engine first." >&2
+  exit 1
+fi
+
+HOST_DIR="$(pwd)"
+
+# Mounting your whole home directory (or /) works, but is rarely what you want.
+if [ "$HOST_DIR" = "$HOME" ] || [ "$HOST_DIR" = "/" ]; then
+  echo "rosempty: note -- mounting $HOST_DIR into the container." >&2
+  echo "          Usually you want to cd into your rossim clone (or the folder" >&2
+  echo "          with your bag files) first." >&2
+fi
+
+# Only ask for a TTY when we actually have one (so piping/scripting works).
+TTY_ARGS=(-i)
+if [ -t 0 ] && [ -t 1 ]; then
+  TTY_ARGS=(-it)
+fi
+
+# No command given -> interactive shell.
+if [ $# -eq 0 ]; then
+  set -- bash
+fi
+
+# Git Bash on Windows rewrites "/ros/..." arguments into Windows paths; stop it.
+export MSYS_NO_PATHCONV=1
+
+exec docker run --rm "${TTY_ARGS[@]}" "${PORT_ARGS[@]}" \
+  -v "$HOST_DIR:$MOUNT_POINT" \
+  -w "$MOUNT_POINT" \
+  "$IMAGE" \
+  bash -c 'if [ -f devel/setup.bash ]; then source devel/setup.bash; fi; exec "$@"' rosempty "$@"
