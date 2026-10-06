@@ -113,6 +113,8 @@ python3 dashboard/dashboard_tui.py --mode live   # in another
 ```
 --mode sim|live       which field set to show (default: sim)
 --port 8888           HTTP port inside the container (default: 8888)
+--public-port 8889    host port to print in the "open ..." URL, if Docker
+                      published 8888 elsewhere (dashboard.sh sets this)
 --rate 10             dashboard refresh rate in Hz (default: 10)
 --scan-period 1.0     seconds between car-discovery scans (default: 1.0)
 --stale-after 1.0     seconds without an update before a value greys out

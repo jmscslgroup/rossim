@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
     -n|--name) NAME="$2"; shift 2 ;;
     -m|--mode) MODE="$2"; shift 2 ;;
     -t|--text) TEXT=1; shift ;;
-    -h|--help) grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     -*) echo "Unknown option: $1" >&2; exit 1 ;;
     *) echo "Unexpected argument: $1" >&2; exit 1 ;;
   esac
@@ -45,6 +45,7 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$NAME"; then
   exit 1
 fi
 
+EXTRA_ARGS=""
 if [ "$TEXT" -eq 1 ]; then
   SCRIPT="dashboard_tui.py"
   echo "==> Starting '$MODE' TEXT dashboard in container '$NAME' (Ctrl+C to stop)"
@@ -55,6 +56,9 @@ else
   echo "==> Starting '$MODE' web dashboard in container '$NAME'"
   if [ -n "$HOST_PORT" ]; then
     echo "==> Open http://localhost:$HOST_PORT in your browser"
+    # dashboard.py can't see the host port from inside the container; tell it,
+    # so its own "open http://localhost:..." log line matches.
+    EXTRA_ARGS="--public-port $HOST_PORT"
   else
     echo "==> WARNING: container '$NAME' has no dashboard port published to the host,"
     echo "    so the browser can't reach it. Restart the sim with ./scripts/run.sh,"
@@ -65,4 +69,4 @@ fi
 
 exec docker exec -it "$NAME" /bin/bash -lc "\
   source devel/setup.bash 2>/dev/null || true; \
-  python3 /ros/catkin_ws/dashboard/$SCRIPT --mode $MODE"
+  python3 /ros/catkin_ws/dashboard/$SCRIPT --mode $MODE $EXTRA_ARGS"

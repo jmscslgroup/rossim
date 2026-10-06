@@ -374,18 +374,44 @@ If you are already in the container shell from Step 6 (with the workspace
 sourced), launch directly:
 
 ```bash
-roslaunch profacc profaccDocker.launch
+roslaunch profacc profaccDocker_complex.launch
 ```
 
 Or, from your host, use the one-command shortcut that builds, sources, and
 launches in a fresh container:
 
 ```bash
-./scripts/run.sh                          # default: profaccDocker.launch
-./scripts/run.sh profaccDocker_complex.launch   # any launch file in src/profacc/launch/
+./scripts/run.sh                                   # default: profacc profaccDocker_complex.launch
+./scripts/run.sh profaccDocker.launch              # another launch file in src/profacc/launch/
 ```
 
-You will see ROS start up several nodes. The bag file replays the lead car velocity trace, the ACC controller computes acceleration commands, and the ego car model responds. All topics are recorded to a new bag file (`profacc_*.bag`) in the workspace root.
+You will see ROS start up several nodes. The bag file replays the lead car velocity trace, the ACC controller computes acceleration commands, and the ego car model responds. All topics are recorded to a new bag file (`profacc_complex_*.bag` for the default) in the workspace root.
+
+### Choosing what `run.sh` launches
+
+`run.sh` takes the same `PACKAGE FILE.launch` words as `roslaunch`, so you can
+run a launch file from **any** package in `src/` (for example your own
+generated controller) without editing the script:
+
+```bash
+./scripts/run.sh myacc myacc_sim.launch            # launch file from another package
+./scripts/run.sh --pkg myacc myacc_sim.launch      # same thing, as an option
+./scripts/run.sh launch/myproject.launch           # a launch file by path (inside rossim/)
+./scripts/run.sh profaccDocker.launch bagfileout:=/ros/catkin_ws/trial1
+                                                   # set a launch file <arg>
+```
+
+| You give | It runs |
+|----------|---------|
+| nothing | `roslaunch profacc profaccDocker_complex.launch` |
+| `FILE.launch` | `roslaunch profacc FILE.launch` |
+| `PACKAGE FILE.launch` or `--pkg PACKAGE FILE.launch` | `roslaunch PACKAGE FILE.launch` |
+| a path such as `launch/x.launch` | `roslaunch /ros/catkin_ws/launch/x.launch` |
+| `name:=value` (any number) | passed on to `roslaunch` as launch arguments |
+
+These combine with `--name` and `--port`. The workspace is rebuilt with
+`catkin_make` first, so a package you just added to `src/` is found
+automatically. Run `./scripts/run.sh --help` for the full list.
 
 When the bag file finishes playing (or you want to stop early), press **Ctrl+C**.
 
@@ -555,11 +581,16 @@ Output is saturated to **[-3.0, 1.5] m/s^2**.
 | Subscribes  | `rel_vel`          | `std_msgs/Float64`  | Relative velocity (lead - ego) |
 | Publishes   | `cmd_accel`        | `std_msgs/Float64`  | Acceleration command |
 
-Parameters can be changed at runtime:
+`alpha` and `tau` are read from the parameter server on every step, in the
+car's namespace (`/egocar/alpha`, `/egocar/tau` -- not under the node name), so
+they can be changed while the simulation runs (`lambda` is fixed in the model):
 
 ```bash
-rosparam set /egocar/profacc_node/tau 3.0
+rosparam set /egocar/tau 3.0
 ```
+
+To set them from a launch file, put `<param name="tau" value="3.0" />` inside
+the `<group ns="egocar">` block.
 
 ---
 
@@ -572,7 +603,68 @@ All Docker launch files are in `src/profacc/launch/`:
 | `profaccDocker.launch` | 1 | simple | Basic scenario. Replays `mytest.bag` from t=100s. Lead starts at x=20m. |
 | `profaccDocker_test1.launch` | 1 | simple | Ego starts closer (x0=15m) and faster (v0=2.5 m/s). |
 | `profaccDocker_test2.launch` | 1 | complex | Adds 10m extra buffer to `lead_dist`. |
-| `profaccDocker_complex.launch` | 1 | complex | Same as basic but with the complex vehicle model. |
+| `profaccDocker_complex.launch` | 1 | complex | Same as basic but with the complex vehicle model. **Default for `run.sh`.** |
+
+---
+
+## Your own launch files
+
+### A project scenario
+
+Don't edit the provided files in `src/profacc/` (a cloned repo -- a `git pull`
+could overwrite your changes). Copy the closest one into a `launch/` folder in
+`rossim/` and edit the copy:
+
+```bash
+mkdir -p launch
+cp src/profacc/launch/profaccDocker_complex.launch launch/myproject.launch
+```
+
+Typical edits: initial conditions (`/leadcar/x0`, `/egocar/v0`, ...), where
+the bag starts (`-s N` skips the first N seconds), controller gains (see
+above), and the output bag name (`bagfileout`). Paths inside launch files are
+**container** paths: `/ros/catkin_ws` is your `rossim/` folder.
+
+Check the file without running it, then run it:
+
+```bash
+./scripts/rosempty roslaunch --nodes launch/myproject.launch   # lists the nodes it would start
+./scripts/run.sh launch/myproject.launch
+```
+
+### Your generated (Simulink) controller
+
+Building a Simulink model for ROS produces a catkin package named after the
+model. Put it in `src/` (e.g. `src/myacc/`, containing `package.xml`), and give
+it its own launch file:
+
+```bash
+mkdir -p src/myacc/launch
+cp launch/myproject.launch src/myacc/launch/myacc_sim.launch
+```
+
+In the copy, **replace** the profacc node inside `<group ns="egocar">` (don't
+add yours beside it, or two controllers publish `cmd_accel`):
+
+```xml
+<!-- was: <node pkg="profacc" type="profacc" name="profacc_node" /> -->
+<node pkg="myacc" type="myacc" name="myacc_node" output="screen">
+  <remap from="my_accel" to="cmd_accel" />   <!-- only if your topic names differ -->
+</node>
+```
+
+Your node should subscribe to `car/state/vel_x`, `lead_dist` and `rel_vel`
+and publish `cmd_accel` (names without a leading `/` land in `/egocar/...`).
+Then build and run it -- `run.sh` runs `catkin_make` first:
+
+```bash
+./scripts/run.sh myacc myacc_sim.launch
+# second terminal: ./scripts/join.sh, then
+rosnode list                       # /egocar/myacc_node there?
+rostopic info /egocar/cmd_accel    # published by myacc_node?
+```
+
+Regenerate and re-copy the package whenever the model changes.
 
 ---
 

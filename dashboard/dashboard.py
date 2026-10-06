@@ -108,6 +108,10 @@ def main():
     parser.add_argument("--mode", choices=["sim", "live"], default="sim")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8888)
+    parser.add_argument("--public-port", type=int, default=None,
+                        help="host port the browser should use, when it differs from "
+                             "--port (e.g. Docker published 8888 as 8889); only "
+                             "affects the URL printed at startup")
     parser.add_argument("--rate", type=float, default=10.0,
                         help="dashboard refresh rate in Hz (default: 10)")
     parser.add_argument("--scan-period", type=float, default=1.0,
@@ -135,7 +139,8 @@ def main():
 
     threading.Thread(target=server.serve_forever, daemon=True).start()
     rospy.loginfo("dashboard: mode=%s serving on %s:%d", args.mode, args.host, args.port)
-    rospy.loginfo("dashboard: open http://localhost:%d in your browser", args.port)
+    rospy.loginfo("dashboard: open http://localhost:%d in your browser",
+                  args.public_port or args.port)
 
     try:
         rospy.spin()
