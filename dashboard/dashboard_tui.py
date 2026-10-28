@@ -59,6 +59,23 @@ def render(fields, snapshot, mode, stamp, position_key):
         lines.append("   check 'rostopic list' if this stays empty on the real vehicle)")
         return "\n".join(lines)
 
+    # Live mode is one car with many fields: list them top to bottom so the
+    # display fits an 80-column SSH terminal instead of one very wide row.
+    if mode == "live":
+        info = snapshot[cars[0]]
+        avail = set(info.get("available", []))
+        lines.append("car: %s" % cars[0])
+        lines.append("")
+        for f in fields:
+            if f["key"] in avail:
+                text, unit = cell(info["fields"].get(f["key"]), f), f["unit"]
+            else:
+                text, unit = "(not publishing)", ""
+            lines.append("  {:<17}{:>16}  {}".format(f["label"], text, unit))
+        lines.append("")
+        lines.append("* = stale (no recent update)    Ctrl+C to quit")
+        return "\n".join(lines)
+
     # Header row: car name + one column per field.
     header = "{:<12}".format("car") + "".join("{:<{w}}".format(f["key"], w=COL) for f in fields)
     lines.append(header)

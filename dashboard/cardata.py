@@ -23,7 +23,11 @@ import threading
 import time
 
 import rospy
-from std_msgs.msg import Float64
+from sensor_msgs.msg import NavSatFix
+from std_msgs.msg import Bool, Float64, Int16
+
+# Message types a field may use (see "msg" below).
+MSG_TYPES = {"Float64": Float64, "Int16": Int16, "Bool": Bool, "NavSatFix": NavSatFix}
 
 # --- field definitions -------------------------------------------------------
 # Each field is one reading. Keys:
@@ -32,6 +36,9 @@ from std_msgs.msg import Float64
 #   topic     in sim: a suffix relative to the car namespace (egocar -> /egocar/<topic>)
 #             in live: an absolute topic (starts with "/")
 #   unit, precision, signed   display formatting
+#   msg       optional message type name from MSG_TYPES (default "Float64")
+#   attr      optional message attribute to show (default "data"); lets one
+#             topic feed several fields, e.g. NavSatFix latitude / longitude
 
 # --- sim layout (namespaced, discovered) ------------------------------------
 SIM_POSITION_KEY = "odom"               # field used as a car's position (overhead view)
@@ -53,16 +60,20 @@ LIVE_CAR_NAME = "car"
 LIVE_DETECT_TOPIC = "/car/state/vel_x"  # the car is "present" when this publishes
 
 LIVE_FIELDS = [
-    {"key": "speed",     "label": "Speed",       "topic": "/car/state/vel_x",        "unit": "m/s",  "precision": 2, "signed": False},
-    {"key": "cmd_accel", "label": "Cmd Accel",   "topic": "/cmd_accel",              "unit": "m/s²", "precision": 2, "signed": True},
-    {"key": "accel_in",  "label": "Accel In",    "topic": "/car/cruise/accel_input", "unit": "m/s²", "precision": 2, "signed": True},
-    {"key": "lead_dist", "label": "Lead Dist",   "topic": "/lead_dist",              "unit": "m",    "precision": 2, "signed": False},
-    {"key": "rel_vel",   "label": "Rel Vel",     "topic": "/rel_vel",                "unit": "m/s",  "precision": 2, "signed": True},
+    {"key": "cmd_accel",  "label": "Cmd Accel",       "topic": "/cmd_accel",            "unit": "m/s²", "precision": 2, "signed": True},
+    {"key": "lead_dist",  "label": "Lead Dist",       "topic": "/lead_dist",            "unit": "m",    "precision": 2, "signed": False},
+    {"key": "lead_extra", "label": "Lead Dist Extra", "topic": "/lead_dist_extra",      "unit": "m",    "precision": 2, "signed": False},
+    {"key": "radar_used", "label": "Radar Used",      "topic": "/lead_dist_radar_used", "unit": "1=yes", "precision": 0, "signed": False, "msg": "Bool"},
+    {"key": "rel_vel",    "label": "Rel Vel",         "topic": "/rel_vel",              "unit": "m/s",  "precision": 2, "signed": True},
+    {"key": "set_speed",  "label": "Set Speed",       "topic": "/acc/set_speed",        "unit": "m/s",  "precision": 0, "signed": False, "msg": "Int16"},
+    {"key": "speed",      "label": "Speed",           "topic": "/car/state/vel_x",      "unit": "m/s",  "precision": 2, "signed": False},
+    {"key": "gps_lat",    "label": "GPS Lat",         "topic": "/car/gps/fix",          "unit": "deg",  "precision": 6, "signed": True, "msg": "NavSatFix", "attr": "latitude"},
+    {"key": "gps_lon",    "label": "GPS Lon",         "topic": "/car/gps/fix",          "unit": "deg",  "precision": 6, "signed": True, "msg": "NavSatFix", "attr": "longitude"},
     # Further real-vehicle topics available in the recording, for later:
-    #   /car/gps/heading (Float64), /acc/set_speed2 (Float64),
-    #   /car/cruise/... , /steer_torque_cmd (Float64), /highbeams (Float64)
-    # Non-Float64 data (radar tracks, IMU, GPS fix, wheel speeds) needs message
-    # handling added in CarRegistry -- see README.
+    #   /car/cruise/accel_input (Float64), /car/gps/heading (Float64),
+    #   /acc/set_speed2 (Float64), /lead_dist_radar (Float64),
+    #   /steer_torque_cmd (Float64), /highbeams (Float64)
+    # Other message types: add them to MSG_TYPES and set "msg"/"attr" here.
 ]
 
 
@@ -165,13 +176,16 @@ class CarRegistry(object):
         key = (car, field["key"])
         if key in self._subs:
             return
+        msg_type = MSG_TYPES[field.get("msg", "Float64")]
         self._subs[key] = rospy.Subscriber(
-            topic, Float64, self._make_cb(car, field["key"]), queue_size=1)
+            topic, msg_type, self._make_cb(car, field["key"], field.get("attr", "data")),
+            queue_size=1)
 
-    def _make_cb(self, car, key):
+    def _make_cb(self, car, key, attr):
         def cb(msg):
+            value = float(getattr(msg, attr))   # Bool -> 1.0/0.0, Int16 -> float
             with self._lock:
-                self._values[(car, key)] = (msg.data, time.monotonic())
+                self._values[(car, key)] = (value, time.monotonic())
         return cb
 
     def snapshot(self, stale_after):

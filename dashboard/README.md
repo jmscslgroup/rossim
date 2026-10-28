@@ -92,13 +92,27 @@ Positions in the overhead view come from each car's odometer (`odom_x`).
 
 **live.** The real vehicle publishes one car's data at absolute topics. The
 field map (`LIVE_FIELDS` in `cardata.py`) was taken from a bag recorded on the
-car: `speed` ← `/car/state/vel_x`, `cmd_accel` ← `/cmd_accel`, `accel_in` ←
-`/car/cruise/accel_input`, `lead_dist` ← `/lead_dist`, `rel_vel` ← `/rel_vel`.
+car:
+
+| Field | Topic | Type |
+|-------|-------|------|
+| `cmd_accel` | `/cmd_accel` | `std_msgs/Float64` |
+| `lead_dist` | `/lead_dist` | `std_msgs/Float64` |
+| `lead_extra` | `/lead_dist_extra` | `std_msgs/Float64` |
+| `radar_used` | `/lead_dist_radar_used` | `std_msgs/Bool` (shown as 1/0) |
+| `rel_vel` | `/rel_vel` | `std_msgs/Float64` |
+| `set_speed` | `/acc/set_speed` | `std_msgs/Int16` |
+| `speed` | `/car/state/vel_x` | `std_msgs/Float64` |
+| `gps_lat`, `gps_lon` | `/car/gps/fix` | `sensor_msgs/NavSatFix` (`latitude`, `longitude`) |
+
 There is no odometry on the vehicle, so live mode has no position field and the
 overhead view shows the single vehicle (the data tiles are the main view; the
-web UI defaults to **Data** in live mode). Add more real-vehicle fields by
-appending to `LIVE_FIELDS`; `std_msgs/Float64` topics work as-is, other message
-types need handling added in `CarRegistry`.
+web UI defaults to **Data** in live mode). The text dashboard lists the live
+fields one per line so they fit an 80-column SSH terminal. Add more
+real-vehicle fields by appending to `LIVE_FIELDS`; `Float64` topics work as-is.
+For another message type, give the field `"msg"` (a name in `MSG_TYPES`) and
+`"attr"` (the message attribute to show, default `data`); add new types to
+`MSG_TYPES` in `cardata.py`.
 
 You can exercise live mode locally without a car by replaying the recording
 (it publishes the real absolute topics):
@@ -158,6 +172,6 @@ python3 dashboard/smoke_check.py
 
 - **Gauges:** edit `index.html` only -- the data plumbing does not change. The
   `position_key` and per-field metadata are already exposed via `/config`.
-- **New fields:** add to `SIM_FIELDS` (or `LIVE_EXTRA_FIELDS`) in `dashboard.py`.
-- **Other message types:** fields are currently `std_msgs/Float64`; add handling
-  in `CarRegistry` for other types as real-car topics require.
+- **New fields:** add to `SIM_FIELDS` (or `LIVE_FIELDS`) in `cardata.py`.
+- **Other message types:** add the type to `MSG_TYPES` in `cardata.py` and set
+  `"msg"` / `"attr"` on the field (see the live table above).
