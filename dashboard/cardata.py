@@ -61,6 +61,7 @@ LIVE_DETECT_TOPIC = "/car/state/vel_x"  # the car is "present" when this publish
 
 LIVE_FIELDS = [
     {"key": "cmd_accel",  "label": "Cmd Accel",       "topic": "/cmd_accel",            "unit": "m/s²", "precision": 2, "signed": True},
+    {"key": "cmd_accel_speedlimit_pre",  "label": "Cmd Accel after controller",       "topic": "/cmd_accel_speedlimit_pre",            "unit": "m/s²", "precision": 2, "signed": True},
     {"key": "lead_dist",  "label": "Lead Dist",       "topic": "/lead_dist",            "unit": "m",    "precision": 2, "signed": False},
     {"key": "lead_extra", "label": "Lead Dist Extra", "topic": "/lead_dist_extra",      "unit": "m",    "precision": 2, "signed": False},
     {"key": "radar_used", "label": "Radar Used",      "topic": "/lead_dist_radar_used", "unit": "1=yes", "precision": 0, "signed": False, "msg": "Bool"},
